@@ -1,12 +1,11 @@
 import asyncio
-from typing import Optional
 
 import discord
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 
 from src.config import settings
+from src.tracking.news import track_news
 from src.tracking.sbir import track_sbir
 
 intents = discord.Intents.default()
@@ -28,6 +27,17 @@ async def lifespan():
 async def cron_tracking_sbir():
     asyncio.create_task(track_sbir(send_embed, send_error))
     return {"status": "success"}
+
+
+@app.get("/cron/tracking/news")
+async def cron_tracking_news():
+    asyncio.create_task(track_news(send_msg, send_error))
+    return {"status": "success"}
+
+
+async def send_msg(channel_id: int, message: str):
+    channel = bot.get_channel(channel_id)
+    await channel.send(message)
 
 
 async def send_embed(
@@ -54,6 +64,6 @@ async def send_error(message: str):
 
 if __name__ == "__main__":
     if settings.RAILWAY_ENVIRONMENT_NAME == "development":
-        uvicorn.run("bot:app", host="0.0.0.0", port=settings.API_PORT, reload=True)
+        uvicorn.run("bot:app", host="0.0.0.0", port=settings.PORT, reload=True)
     else:
-        uvicorn.run(app, host="0.0.0.0", port=settings.API_PORT)
+        uvicorn.run(app, host="0.0.0.0", port=settings.PORT)

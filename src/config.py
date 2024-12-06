@@ -8,7 +8,7 @@ from supabase import Client, create_client
 
 
 class Settings(BaseSettings):
-    API_PORT: int
+    PORT: int
     RAILWAY_ENVIRONMENT_NAME: str
 
     BROWSERBASE_API_KEY: str
@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     SUPABASE_KEY: str
     DISCORD_TOKEN: str
     OPENAI_API_KEY: str
+    JINA_API_KEY: str
 
     @property
     def browserbase(self):

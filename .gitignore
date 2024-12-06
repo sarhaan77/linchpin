@@ -12,3 +12,6 @@ wheels/
 
 # tmp folder is ok but not the files inside
 tmp/*
+!tmp/.gitkeep
+
+play.ipynb

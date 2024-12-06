@@ -1,20 +1,17 @@
 [project]
-name = "discord-bot"
+name = "linchpin"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "discord-py>=2.4.0",
-    "ipykernel>=6.29.5",
-    "python-dotenv>=1.0.1",
     "browserbase>=1.0.3",
     "fastapi[all]>=0.115.5",
     "playwright>=1.49.0",
     "pydantic-settings>=2.6.1",
     "supabase>=2.10.0",
-    "bs4>=0.0.2",
-    "markdownify>=0.14.1",
     "pandas>=2.2.3",
     "instructor>=1.7.0",
+    "markdownify>=0.14.1",
 ]

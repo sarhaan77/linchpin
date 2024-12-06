@@ -5,7 +5,7 @@ from io import BytesIO
 from pathlib import Path
 
 from browserbase.types import Extension, SessionCreateResponse
-from playwright.async_api import Playwright, async_playwright
+from playwright.async_api import async_playwright
 
 from src.config import settings
 
@@ -61,6 +61,7 @@ def delete_extension(id: str) -> None:
 
 
 async def run(url: str, proxy: bool = False, load_extension: bool = False) -> None:
+    html = None
     async with async_playwright() as playwright:
         try:
             if load_extension:
@@ -72,34 +73,24 @@ async def run(url: str, proxy: bool = False, load_extension: bool = False) -> No
                     extension_id=extension.id,
                     proxies=proxy,
                 )
-                print(f"Created session with extension, with ID: {session.id}")
             else:
                 session: SessionCreateResponse = settings.browserbase.sessions.create(
                     project_id=settings.BROWSERBASE_PROJECT_ID, proxies=proxy
                 )
-                print(f"Created session with ID: {session.id}")
+            browser = await playwright.chromium.connect_over_cdp(session.connect_url)
+            context = browser.contexts[0]
+            page = context.pages[0]
+            html = None
+            await page.goto(url)
+            if load_extension:
+                # scroll down as some websites need to load more content
+                await page.evaluate("window.scrollBy(0, window.innerHeight)")
+                time.sleep(3)
 
-            try:
-                browser = await playwright.chromium.connect_over_cdp(
-                    session.connect_url
-                )
-                context = browser.contexts[0]
-                page = context.pages[0]
-
-                await page.goto(url)
-                if load_extension:
-                    # scroll down as some websites need to load more content
-                    await page.evaluate("window.scrollBy(0, window.innerHeight)")
-                    time.sleep(3)
-
-                # get html
-                html = await page.content()
-                # save to tmp/b.html
-                with open("tmp/b.html", "w") as f:
-                    f.write(html)
-            finally:
-                await page.close()
-                await browser.close()
-
+            html = await page.content()
         except Exception as e:
-            print(e)
+            raise e
+        finally:
+            await page.close()
+            await browser.close()
+        return html

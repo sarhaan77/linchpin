@@ -1,17 +1,7 @@
-"""
-CRON: once a day
-URL: https://www.sbir.gov/topics
-STEPS:
-1. Scrape the SBIR website by running the curl command
-2. Upload to the database > sbir, primary key is url; ignore all duplicates; if not exists, add to db
-3. Get all rows where summary is null, summarize, add to db, send to discord > tracking >
-4. if any error send to discord > errors
-"""
-
 import asyncio
-import subprocess
 
 import pandas as pd
+import requests
 from pydantic import BaseModel, Field
 from tqdm.asyncio import tqdm
 
@@ -19,37 +9,59 @@ from src.config import settings, setup_logger
 
 logger = setup_logger(__name__)
 # tracking>sbir-grants
-
 CHANNEL_ID = 1314432734697095238
-
-run_command = """curl 'https://www.sbir.gov/topics' \
--H 'accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7' \
--H 'accept-language: en-GB,en-US;q=0.9,en;q=0.8' \
--H 'cache-control: max-age=0' \
--H 'content-type: application/x-www-form-urlencoded' \
--H 'cookie: opensearch_download_complete=0; Drupal.visitor.topics_page_saved_search=%5B%5D' \
--H 'origin: https://www.sbir.gov' \
--H 'priority: u=0, i' \
--H 'referer: https://www.sbir.gov/topics' \
--H 'sec-ch-ua: "Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"' \
--H 'sec-ch-ua-mobile: ?0' \
--H 'sec-ch-ua-platform: "macOS"' \
--H 'sec-fetch-dest: document' \
--H 'sec-fetch-mode: navigate' \
--H 'sec-fetch-site: same-origin' \
--H 'sec-fetch-user: ?1' \
--H 'upgrade-insecure-requests: 1' \
--H 'user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' \
---data-raw 'keywords=&open_date_from=&open_date_to=&close_date_from=&close_date_to=&status=Open&op=Download&form_build_id=form-0jgcyUu86pIPRqKw0IAXvAXNYCgR42B6R2l4SLh4580&form_id=topics_search' >> tmp/sbir.csv
-"""
 
 
 class Summary(BaseModel):
     summary: str = Field(description="Summary of the topic")
 
 
+def load_sbir_from_website():
+    url = "https://www.sbir.gov/topics"
+    headers = {
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "accept-language": "en-GB,en-US;q=0.9,en;q=0.8",
+        "cache-control": "max-age=0",
+        "content-type": "application/x-www-form-urlencoded",
+        "origin": "https://www.sbir.gov",
+        "referer": "https://www.sbir.gov/topics",
+        "sec-ch-ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"macOS"',
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-user": "?1",
+        "upgrade-insecure-requests": "1",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    }
+    data = {
+        "keywords": "",
+        "open_date_from": "",
+        "open_date_to": "",
+        "close_date_from": "",
+        "close_date_to": "",
+        "status": "Open",
+        "op": "Download",
+        "form_build_id": "form-0jgcyUu86pIPRqKw0IAXvAXNYCgR42B6R2l4SLh4580",
+        "form_id": "topics_search",
+    }
+
+    response = requests.post(url, headers=headers, data=data)
+
+    # Write the response to file
+    with open("tmp/sbir.csv", "w") as f:
+        f.write(response.text)
+
+
 async def track_sbir(fn_send_embed, fn_send_error) -> list[dict]:
     """Run as a CRON job
+
+    STEPS:
+    1. Scrape the SBIR website by running the curl command
+    2. Upload to the database > sbir, primary key is url; ignore all duplicates; if not exists, add to db
+    3. Get all rows where summary is null, summarize, add to db, send to discord > tracking >
+    4. if any error send to discord > errors
 
     Args:
         async fn_send_embed (function): send_embed function
@@ -81,11 +93,7 @@ async def track_sbir(fn_send_embed, fn_send_error) -> list[dict]:
 
     try:
         logger.info("[TRACKING>SBIR] Fetching SBIR Grants from website")
-        result = subprocess.run(run_command, shell=True)
-        if result.returncode != 0:
-            raise Exception(
-                f"Cannot fetch SBIR Grants from website, curl command failed with code: {result.returncode}"
-            )
+        load_sbir_from_website()
         df = pd.read_csv("tmp/sbir.csv")
         # if 0 lines raise error
         if len(df) == 0:
