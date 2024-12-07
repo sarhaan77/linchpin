@@ -1,5 +1,3 @@
-import logging
-
 import instructor
 from browserbase import Browserbase
 from openai import AsyncOpenAI
@@ -38,25 +36,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-
-
-def setup_logger(name=__name__, level=logging.INFO):
-    # Create logger
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-
-    # Add console handler if it doesn't exist
-    if not logger.handlers:
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(level)
-
-        # Create formatter
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        )
-        console_handler.setFormatter(formatter)
-
-        # Add handler to the logger
-        logger.addHandler(console_handler)
-
-    return logger

@@ -5,11 +5,13 @@ import requests
 from pydantic import BaseModel, Field
 from tqdm.asyncio import tqdm
 
-from src.config import settings, setup_logger
+from src.bot import send_embed, setup_logger
+from src.config import settings
 
 logger = setup_logger(__name__)
 # tracking>sbir-grants
 CHANNEL_ID = 1314432734697095238
+url = "https://www.sbir.gov/topics"
 
 
 class Summary(BaseModel):
@@ -17,7 +19,6 @@ class Summary(BaseModel):
 
 
 def load_sbir_from_website():
-    url = "https://www.sbir.gov/topics"
     headers = {
         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
         "accept-language": "en-GB,en-US;q=0.9,en;q=0.8",
@@ -54,24 +55,13 @@ def load_sbir_from_website():
         f.write(response.text)
 
 
-async def track_sbir(fn_send_embed, fn_send_error) -> list[dict]:
-    """Run as a CRON job
-
+async def track_sbir() -> list[dict]:
+    """
     STEPS:
     1. Scrape the SBIR website by running the curl command
     2. Upload to the database > sbir, primary key is url; ignore all duplicates; if not exists, add to db
     3. Get all rows where summary is null, summarize, add to db, send to discord > tracking >
     4. if any error send to discord > errors
-
-    Args:
-        async fn_send_embed (function): send_embed function
-            - channel_id (int): channel id
-            - embed_title (str): title of the embed
-            - embed_description (str): description of the embed
-            - embed_url (str): url of the embed
-
-        async fn_send_error (function): send_error function
-            - message (str): error message
     """
 
     async def summarizer(info: dict, sem: asyncio.Semaphore) -> dict | None:
@@ -92,7 +82,8 @@ async def track_sbir(fn_send_embed, fn_send_error) -> list[dict]:
                 return None
 
     try:
-        logger.info("[TRACKING>SBIR] Fetching SBIR Grants from website")
+        logger.info(f"[TRACKING>SBIR] Fetching SBIR Grants from {url}")
+
         load_sbir_from_website()
         df = pd.read_csv("tmp/sbir.csv")
         # if 0 lines raise error
@@ -125,7 +116,7 @@ async def track_sbir(fn_send_embed, fn_send_error) -> list[dict]:
         # dont ignore duplicates coz we are updating the rows with summaries
         settings.supabase_client.table("sbir").upsert(summaries).execute()
         for summary in summaries:
-            await fn_send_embed(
+            await send_embed(
                 CHANNEL_ID,
                 summary["Topic Title"],
                 summary["summary"],
@@ -134,4 +125,3 @@ async def track_sbir(fn_send_embed, fn_send_error) -> list[dict]:
         logger.info("[TRACKING>SBIR] SBIR Grants fetched and summarized")
     except Exception as e:
         logger.error(f"[TRACKING>SBIR>SUMMARIZER] {e}")
-        await fn_send_error(f"[TRACKING>SBIR>SUMMARIZER] {e}")

@@ -15,4 +15,4 @@ RUN uv sync --frozen
 
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH"
-CMD ["uv", "run", "bot.py"]
+CMD ["uv", "run", "main.py"]

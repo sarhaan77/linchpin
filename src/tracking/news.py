@@ -1,17 +1,18 @@
+import asyncio
 from typing import List
 
 import requests
 from markdownify import markdownify as md
 from pydantic import BaseModel, Field
 
-from src.config import settings, setup_logger
-from src.scrape import run
+from src.bb import bb_get_html
+from src.bot import send_msg, setup_logger
+from src.config import settings
 
 channels = {
     "defense": 1314477322178531338,
     "business": 1314490175375806505,
     "world": 1314491244428398622,
-    "blogs": 1314496562008690761,
 }
 
 base_urls = [
@@ -28,28 +29,9 @@ base_urls = [
         "jina": True,
     },
     {
-        "title": "Eric Berger",
-        "url": "https://arstechnica.com/author/ericberger/",
-        "category": "defense",
-        "jina": True,
-    },
-    {
-        "title": "Stratechery",
-        "url": "https://stratechery.com/category/articles/",
-        "category": "world",
-        "jina": True,
-    },
-    {
         "title": "Reuters",
         "url": "https://www.reuters.com/business/aerospace-defense/",
         "category": "defense",
-        "jina": False,
-        "proxy": True,
-    },
-    {
-        "title": "Reuters",
-        "url": "https://www.reuters.com/business/",
-        "category": "business",
         "jina": False,
         "proxy": True,
     },
@@ -68,30 +50,20 @@ base_urls = [
         "proxy": True,
     },
     {
-        "title": "WSJ",
-        "url": "https://www.wsj.com/business",
-        "category": "business",
-        "jina": False,
-        "proxy": True,
-    },
-    {
-        "title": "Snippet Finance",
-        "url": "https://snippet.finance/",
-        "category": "blogs",
+        "title": "Eric Berger",
+        "url": "https://arstechnica.com/author/ericberger/",
+        "category": "defense",
         "jina": True,
     },
-    {
-        "title": "Subsea Cables & Internet Infrastructure",
-        "url": "https://subseacables.blogspot.com/",
-        "category": "blogs",
-        "jina": True,
-    },
-    {
-        "title": "Outside Five Sigma",
-        "url": "https://jwt625.github.io/",
-        "category": "blogs",
-        "jina": True,
-    },
+    # WSJ blocks browserbase
+    # {
+    #     "title": "WSJ",
+    #     "url": "https://www.wsj.com/business",
+    #     "category": "business",
+    #     "jina": False,
+    #     "proxy": True,
+    #     "captcha": True,
+    # },
 ]
 
 
@@ -115,58 +87,53 @@ def use_jina(url: str):
     return response.text
 
 
-async def track_news(fn_send_msg, fn_send_error) -> list[dict]:
-    """
-    Args:
-    async fn_send_msg (function): send_embed function
-       - message (str): message to send
+async def scrape(url: str, jina: bool, proxy: bool = False, captcha: bool = False):
+    if jina:
+        content = use_jina(url)
+    else:
+        html = await asyncio.to_thread(bb_get_html, url, proxy=proxy, captcha=captcha)
+        content = md(html)
 
-    async fn_send_error (function): send_error function
-        - message (str): error message
-    """
+    prompt = f"You are given content from a news websites main page, please retrieve all the articles and their URLs. Again, the user is only interested in reading articles, not any other content on the page. Here is the content: {content}"
+    articles = await settings.async_openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        response_model=Articles,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    articles = [x.model_dump() for x in articles.articles]
+    non_duplicates = (
+        settings.supabase_client.table("news")
+        .upsert(
+            articles,
+            ignore_duplicates=True,
+            returning="representation",
+            count="exact",
+        )
+        .execute()
+    )
+    return non_duplicates
 
-    logger.info("[NEWS] Starting to scrape news articles")
+
+async def track_news() -> list[dict]:
     for base_url in base_urls:
         try:
             url = base_url["url"]
             jina = base_url["jina"]
             title = base_url["title"]
+            proxy = base_url.get("proxy", False)
+            captcha = base_url.get("captcha", False)
             channel_id = channels[base_url["category"]]
-            logger.info(f"[NEWS] Scraping {url}")
+            logger.info(f"[NEWS] [{url}] Scraping")
 
-            if jina:
-                content = use_jina(url)
-            else:
-                html = await run(url, proxy=base_url.get("proxy", False))
-                content = md(html)
+            non_duplicates = await scrape(url, jina, proxy, captcha)
 
-            prompt = f"You are given content from a news websites main page, please retrieve all the articles and their URLs. Again, the user is only interested in reading articles, not any other content on the page. Here is the content: {content}"
-            articles = await settings.async_openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                response_model=Articles,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            articles = [x.model_dump() for x in articles.articles]
-            non_duplicates = (
-                settings.supabase_client.table("news")
-                .upsert(
-                    articles,
-                    ignore_duplicates=True,
-                    returning="representation",
-                    count="exact",
-                )
-                .execute()
-            )
             for a in non_duplicates.data:
-                await fn_send_msg(
+                await send_msg(
                     channel_id,
                     f"[{title}] [{a['headline']}]({a['url']})",
                 )
-
             logger.info(
                 f"[NEWS] [{url}] Scraped {len(non_duplicates.data)} new articles"
             )
         except Exception as e:
-            error_msg = f"[NEWS] [{url}] Error scraping: {e}"
-            logger.error(error_msg)
-            await fn_send_error(error_msg)
+            logger.error(f"[NEWS] [{url}] Error scraping: {e}")
